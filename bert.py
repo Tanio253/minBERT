@@ -33,3 +33,22 @@ class BertAttention(nn.Module):
         xv = transform(x, self.value)
         out = attention(xq ,xk, xv)
         return out
+class BertLayer(nn.Module):
+    def __init__(self, config):
+        super.__init__(config)
+        self.MultiheadAttention = BertAttention(config)
+        self.norm = nn.LayerNorm(config.fhsize)
+        self.ff = nn.Sequential(nn.Linear(config.fhsize, config.ffpro1, bias = True),
+                                nn.ReLU(),
+                                nn.Linear(config.ffpro1, config.ffpro2, bias = True),
+                               )
+    def forward(self, x):
+        x = x + self.MultiheadAttention(x)
+        x = self.norm(x)
+        x = x+ self.ff(x)
+        x = self.norm(x)
+        return x
+class BertModel(nn.Module):
+    def __init__(config):
+        super.__init__(config)
+        
