@@ -51,4 +51,12 @@ class BertLayer(nn.Module):
 class BertModel(nn.Module):
     def __init__(config):
         super.__init__(config)
-        
+        self.embedding = EmbeddingLayer
+        self.num_layers = config.num_layers
+    def forward(self, x, config):
+        x = self.embedding(x)
+        for i in range(self.num_layers):
+            bertlayer = BertLayer(config)
+            x = bertlayer(x)
+        last_hidden_state = x[:,1:,:]
+        cls
