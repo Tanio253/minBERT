@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import math
+from based_bert import BertPretrainedModel
 class BertAttention(nn.Module):
     def __init__(self, config, masked_attention = None):
-        super(BertAttention,self).__init__(config)
+        super().__init__()
         assert config.hidden_size%config.num_heads == 0
         self.num_heads = config.num_heads
         self.head_size = self.hidden_size//self.num_heads
@@ -49,12 +50,12 @@ class BertAttention(nn.Module):
         return out
 class BertLayer(nn.Module):
     def __init__(self, config):
-        super.__init__(config)
+        super.__init__()
         self.MultiheadAttention = BertAttention(config)
         self.attention_dense_layer = nn.Linear(config.hidden_size, config.hidden_size)
         self.norm = nn.LayerNorm(config.hidden_size)
         self.ff = nn.Sequential(nn.Linear(config.hidden_size, config.intermediate_size, bias = True),
-                                nn.GELU(),
+                                config.hidden_act,
                                 nn.Linear(config.intermediate_size, config.hidden_size, bias = True),
                                )
     def forward(self, x):
@@ -64,7 +65,7 @@ class BertLayer(nn.Module):
         f =self.dropout(self.ff(out))
         out = self.norm(out+f)
         return out
-class BertModel(nn.Module):
+class BertModel(BertPretrainedModel):
     def __init__(config):
         super.__init__(config)
         self.embedding = EmbeddingLayer
