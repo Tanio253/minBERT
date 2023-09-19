@@ -1,17 +1,19 @@
 import torch
 import torch.nn as nn
+import math
+from based_bert import BertPretrainedModel
 class BertAttention(nn.Module):
-    def __init__(self, config):
-        super(BertAttention,self).__init__(config)
+    def __init__(self, config, masked_attention = None):
+        super().__init__()
+        assert config.hidden_size%config.num_heads == 0
         self.num_heads = config.num_heads
         self.head_size = self.hidden_size//self.num_heads
-        self.total_head_size = self.num_heads*self.head_size
-        self.query = nn.Linear(config.hidden_size, config.total_head_size)
-        self.key = nn.Linear(config.hidden_size, config.total_head_size)
-        self.value = nn.Linear(config.hidden_size, config.total_head_size)
-        self.proj = nn.Linear(config.total_head_size, config.fhsize)
+        self.query = nn.Linear(config.hidden_size, config.hidden_size)
+        self.key = nn.Linear(config.hidden_size, config.hidden_size)
+        self.value = nn.Linear(config.hidden_size, config.hidden_size)
         self.softmax = nn.Softmax(dim = -1)
         self.do = nn.Dropout( p = config.dropout_rate)
+        self.masked_attention = masked_attention
     def transform(self, x, f):
         bs, sen_len = x[:2]
         proj = f(x)
@@ -19,17 +21,85 @@ class BertAttention(nn.Module):
         proj = proj.permute(0,2,1,3)
         return proj
     def attention(self, xq, xk, xv):
+        # B: batch size
+        # S: sequence length
+        # E: embedding vector
+        # H: number of heads
+        # D: head size 
         assert xq.shape = _, self.num_heads, _, self.head_size
         xk = xk.permute(0,1,3,2)
         assert xk.shape = _, self.num_heads, self.head_size, _
         assert xv.shape = _, self.num_heads, _, self.head_size
-        b, _, l, _ = xq.shape
-        attention_score = self.softmax(xq.bmm(xk)/self.head_size).mm(xv) # b, h, l, e/h
-        attention_score = attention_score.permute(0,2,1,3).view(b,l,-1) #b, l, e
-        attention_score = self.proj(attention_score) #b, l, fhsize
+        B, _, L, _ = xq.shape
+        attention_score = xq.bmm(xk)/math.sqrt(self.head_size) # (B, H, S, S)
+        if self.masked_attention is not None:
+            #masked_attention: (B,1,1,S)
+            masked_attention = masked_attention[:,None,None,:]
+            masked_attention = (1.0 - masked_attention)*-10000
+        attention_score += masked_attention
+        attention_score = self.softmax(attention_score)
+        attention_score = self.dropout(attention_score) # B, H, L, D
+        attention_score = attention_score.permute(0,2,1,3).view(B,L,-1) #B, S, E
+        return attention
     def forward(self, x):
         xq = transform(x, self.query)
         xk = transform(x, self.key)
         xv = transform(x, self.value)
         out = attention(xq ,xk, xv)
         return out
+class BertLayer(nn.Module):
+    def __init__(self, config, masked_attention = None):
+        super.__init__()
+        self.MultiheadAttention = BertAttention(config, masked_attention)
+        self.attention_dense_layer = nn.Linear(config.hidden_size, config.hidden_size)
+        self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
+        self.ff = nn.Sequential(nn.Linear(config.hidden_size, config.intermediate_size, bias = True),
+                                config.hidden_act,
+                                nn.Linear(config.intermediate_size, config.hidden_size, bias = True),
+                               )
+    def forward(self, x):
+        f = self.MultiheadAttention(x)
+        f = self.dropout(self.attention_dense_layer(f))
+        out = self.norm(x+f)
+        f =self.dropout(self.ff(out))
+        out = self.norm(out+f)
+        return out
+class BertModel(BertPretrainedModel):
+    def __init__(config):
+        super.__init__(config)
+        self.num_layers = config.num_layers
+        self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.pos_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.segment_embedding = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        self.pos_ids = torch.arange(self.max_position_embeddings)
+        self.register_buffer('position_ids', position_ids)
+        self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
+        self.do = nn.Dropout(config.dropout_rate)
+        self.bert_layers = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
+        self.pooler_dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.pooler_af = nn.Tanh()
+        self.init_weights()
+    def embed(self, input_ids):
+        #token embedding
+        seq_len = input_ids.size(1)
+        token_embed = self.token_embedding(input_ids)
+        #position embedding
+        pos_ids = self.pos_ids[:seq_len].unsqueeze(0)
+        pos_embed = self.pos_embedding(pos_ids)
+        #segment embedding
+        segment_id = torch.zeros(input_ids.size())
+        seqment_embed = self.segment_embedding(segment_id)
+        out = token_embed+ pos_embed+ segment_embed
+        out = self.do(self.norm(out))
+        return out
+        
+    def forward(self, x, config, masked_attention = None):
+        # x: (B, S, E)
+        # mask: (B,S)
+        x = embed(x)
+        for layer in self.bert_layers:
+            x = layer(x, extended_attention_mask)
+        last_hidden_state = x
+        cls_token = x[:,0,:]
+        cls_token = self.pooler_af(self.pooler_dense(cls_token))
+        return last_hidden_state, cls_dim
