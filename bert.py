@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import math
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention,self).__init__(config)
@@ -18,14 +19,27 @@ class BertAttention(nn.Module):
         proj = proj.view(bs,sen_len,self.num_heads,self.head_size)
         proj = proj.permute(0,2,1,3)
         return proj
-    def attention(self, xq, xk, xv):
+    def attention(self, xq, xk, xv, masked_attention):
+        # B: batch size
+        # L: source sequence length
+        # T: target sequence length
+        # E: embedding vector
+        # H: number of heads
+        # D: head size 
         assert xq.shape = _, self.num_heads, _, self.head_size
         xk = xk.permute(0,1,3,2)
         assert xk.shape = _, self.num_heads, self.head_size, _
         assert xv.shape = _, self.num_heads, _, self.head_size
-        b, _, l, _ = xq.shape
-        attention_score = self.softmax(xq.bmm(xk)/self.head_size).mm(xv) # b, h, l, e/h
-        attention_score = attention_score.permute(0,2,1,3).view(b,l,-1) #b, l, e
+        B, _, L, _ = xq.shape
+        attention_score = xq.bmm(xk)/math.sqrt(self.head_size) # (B, H, L, T)
+        if masked_attention is not None:
+            #masked_attention: (B,1,L,T)
+            masked_attention = 1.0 - masked_attention
+            masked_attention *= -1e5
+        attention_score += masked_attention
+        attention_score = self.softmax(attention_score)
+        attention_score = self.dropout(attention_score) # B, H, L, D
+        attention_score = attention_score.permute(0,2,1,3).view(B,L,-1) #B, L, E
         attention_score = self.proj(attention_score) #b, l, fhsize
     def forward(self, x):
         xq = transform(x, self.query)
@@ -59,4 +73,5 @@ class BertModel(nn.Module):
             bertlayer = BertLayer(config)
             x = bertlayer(x)
         last_hidden_state = x[:,1:,:]
-        cls
+        cls_dim = x[:,0,:]
+        return last_hidden_state, cls_dim
