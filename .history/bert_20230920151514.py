@@ -1,20 +1,13 @@
 import torch
 import torch.nn as nn
 import math
-from based_bert import BertPreTrainedModel
-from utils import *
-import sys
-import torch.nn.functional as F
-activate_func = {
-    'gelu': nn.GELU,
-    'relu': nn.ReLU,
-}
+from based_bert import BertPretrainedModel
 class BertAttention(nn.Module):
     def __init__(self, config, masked_attention = None):
         super().__init__()
         assert config.hidden_size%config.num_heads == 0
         self.num_heads = config.num_heads
-        self.head_size = config.hidden_size//config.num_heads
+        self.head_size = self.hidden_size//self.num_heads
         self.query = nn.Linear(config.hidden_size, config.hidden_size)
         self.key = nn.Linear(config.hidden_size, config.hidden_size)
         self.value = nn.Linear(config.hidden_size, config.hidden_size)
@@ -33,12 +26,10 @@ class BertAttention(nn.Module):
         # E: embedding vector
         # H: number of heads
         # D: head size 
-        print(1)
-        print(xq.shape)
-        # assert  _, self.num_heads, _ , self.head_size = xq.shape
-        # xk = xk.permute(0,1,3,2)
-        # assert xk.shape = _, self.num_heads, self.head_size, _
-        # assert xv.shape = _, self.num_heads, _, self.head_size
+        assert  _, self.num_heads, _, self.head_size = xq.shape
+        xk = xk.permute(0,1,3,2)
+        assert xk.shape = _, self.num_heads, self.head_size, _
+        assert xv.shape = _, self.num_heads, _, self.head_size
         B, _, L, _ = xq.shape
         attention_score = xq.bmm(xk)/math.sqrt(self.head_size) # (B, H, S, S)
         if self.masked_attention is not None:
@@ -58,12 +49,12 @@ class BertAttention(nn.Module):
         return out
 class BertLayer(nn.Module):
     def __init__(self, config, masked_attention = None):
-        super().__init__()
+        super.__init__()
         self.MultiheadAttention = BertAttention(config, masked_attention)
         self.attention_dense_layer = nn.Linear(config.hidden_size, config.hidden_size)
         self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
         self.ff = nn.Sequential(nn.Linear(config.hidden_size, config.intermediate_size, bias = True),
-                                activate_func.get(config.activation_func, None)(),
+                                config.hidden_act,
                                 nn.Linear(config.intermediate_size, config.hidden_size, bias = True),
                                )
     def forward(self, x):
@@ -73,15 +64,15 @@ class BertLayer(nn.Module):
         f =self.dropout(self.ff(out))
         out = self.norm(out+f)
         return out
-class BertModel(BertPreTrainedModel):
-    def __init__(self, config):
-        super().__init__(config)
+class BertModel(BertPretrainedModel):
+    def __init__(config):
+        super.__init__(config)
         self.num_layers = config.num_layers
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.pos_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.segment_embedding = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.pos_ids = torch.arange(config.max_position_embeddings)
-        self.register_buffer('position_ids', self.pos_ids)
+        self.pos_ids = torch.arange(self.max_position_embeddings)
+        self.register_buffer('position_ids', position_ids)
         self.norm = nn.LayerNorm(config.hidden_size, eps = config.layer_norm_eps)
         self.do = nn.Dropout(config.dropout_rate)
         self.bert_layers = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])

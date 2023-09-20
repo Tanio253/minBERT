@@ -129,20 +129,20 @@ class BertPreTrainedModel(nn.Module):
     m = {'embeddings.word_embeddings': 'token_embedding',
          'embeddings.position_embeddings': 'pos_embedding',
          'embeddings.token_type_embeddings': 'segment_embedding',
-         'embeddings.LayerNorm': 'embed_norm',
-         'embeddings.dropout': 'embed_do',
+         'embeddings.LayerNorm': 'norm',
+         'embeddings.dropout': 'do',
          'encoder.layer': 'bert_layers',
          'pooler.dense': 'pooler_dense',
          'pooler.activation': 'pooler_af',
-         'attention.self': "MultiheadAttention",
-         'attention.output.dense': 'attention_dense_layer',
-         'attention.output.LayerNorm': 'attention_layernorm',
-         'attention.output.dropout': 'attention_do',
-         'intermediate.dense': 'ff.0',
-         'intermediate.intermediate_act_fn': 'ff.1',
-         'output.dense': 'ff.2',
-         'output.LayerNorm': 'ff_layernorm',
-         'output.dropout': 'ff_do'}
+         'attention.self': "MultiHeadAttention",
+         'attention.output.dense': 'attention_dense',
+         'attention.output.LayerNorm': 'norm',
+         'attention.output.dropout': 'do',
+         'intermediate.dense': 'interm_dense',
+         'intermediate.intermediate_act_fn': 'interm_af',
+         'output.dense': 'out_dense',
+         'output.LayerNorm': 'out_layer_norm',
+         'output.dropout': 'out_dropout'}
 
     for key in state_dict.keys():
       new_key = None

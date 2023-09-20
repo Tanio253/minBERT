@@ -126,23 +126,16 @@ class BertPreTrainedModel(nn.Module):
     # Convert old format to new format if needed from a PyTorch state_dict
     old_keys = []
     new_keys = []
-    m = {'embeddings.word_embeddings': 'token_embedding',
+    m = {'embeddings.token_embedding': 'token_embedding',
          'embeddings.position_embeddings': 'pos_embedding',
          'embeddings.token_type_embeddings': 'segment_embedding',
-         'embeddings.LayerNorm': 'embed_norm',
-         'embeddings.dropout': 'embed_do',
          'encoder.layer': 'bert_layers',
          'pooler.dense': 'pooler_dense',
          'pooler.activation': 'pooler_af',
-         'attention.self': "MultiheadAttention",
-         'attention.output.dense': 'attention_dense_layer',
-         'attention.output.LayerNorm': 'attention_layernorm',
-         'attention.output.dropout': 'attention_do',
-         'intermediate.dense': 'ff.0',
-         'intermediate.intermediate_act_fn': 'ff.1',
-         'output.dense': 'ff.2',
-         'output.LayerNorm': 'ff_layernorm',
-         'output.dropout': 'ff_do'}
+         'attention.self': "MultiHeadAttention",
+         'attention.dense': 'attention_dense',
+         'ff.layer': 'ff',    
+    }
 
     for key in state_dict.keys():
       new_key = None

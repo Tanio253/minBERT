@@ -49,7 +49,7 @@ class BertAttention(nn.Module):
         attention_score = self.softmax(attention_score)
         attention_score = self.dropout(attention_score) # B, H, L, D
         attention_score = attention_score.permute(0,2,1,3).view(B,L,-1) #B, S, E
-        return attention
+        return attention_score
     def forward(self, x):
         xq = transform(x, self.query)
         xk = transform(x, self.key)

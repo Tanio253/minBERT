@@ -190,7 +190,7 @@ class BertConfig(PretrainedConfig):
     num_layers=12,
     num_heads=12,
     intermediate_size=3072,
-    activation_func="gelu",
+    activation_func="relu",
     dropout_rate=0.1,
     max_position_embeddings=512,
     type_vocab_size=2,

@@ -190,7 +190,7 @@ class BertConfig(PretrainedConfig):
     num_layers=12,
     num_heads=12,
     intermediate_size=3072,
-    hidden_act="gelu",
+    activation_func="gelu",
     dropout_rate=0.1,
     max_position_embeddings=512,
     type_vocab_size=2,
@@ -208,7 +208,7 @@ class BertConfig(PretrainedConfig):
     self.hidden_size = hidden_size
     self.num_layers = num_layers
     self.num_heads = num_heads
-    self.hidden_act = hidden_act
+    self.activation_func = activation_func
     self.intermediate_size = intermediate_size
     self.dropout_rate = dropout_rate
     self.max_position_embeddings = max_position_embeddings

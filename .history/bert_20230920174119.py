@@ -49,7 +49,7 @@ class BertAttention(nn.Module):
         attention_score = self.softmax(attention_score)
         attention_score = self.dropout(attention_score) # B, H, L, D
         attention_score = attention_score.permute(0,2,1,3).view(B,L,-1) #B, S, E
-        return attention
+        return attention_score
     def forward(self, x):
         xq = transform(x, self.query)
         xk = transform(x, self.key)
@@ -97,7 +97,7 @@ class BertModel(BertPreTrainedModel):
         pos_embed = self.pos_embedding(pos_ids)
         #segment embedding
         segment_id = torch.zeros(input_ids.size())
-        seqment_embed = self.segment_embedding(segment_id)
+        segment_embed = self.segment_embedding(segment_id)
         out = token_embed+ pos_embed+ segment_embed
         out = self.do(self.norm(out))
         return out
@@ -105,7 +105,7 @@ class BertModel(BertPreTrainedModel):
     def forward(self, x, config, masked_attention = None):
         # x: (B, S, E)
         # mask: (B,S)
-        x = embed(x)
+        x = self.embed(x)
         for layer in self.bert_layers:
             x = layer(x, masked_attention)
         last_hidden_state = x
