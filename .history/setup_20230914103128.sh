@@ -10,4 +10,3 @@ pip install sklearn==0.0
 pip install tokenizers==0.14.0
 pip install explainaboard_client==0.1.4
 pip install chardet==5.2.0
-pip install transformer==4.33.2
