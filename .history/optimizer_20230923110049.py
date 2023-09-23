@@ -32,6 +32,8 @@ class AdamW(Optimizer):
                 if p.grad.data.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
                 state = self.state[p]
+                print(self.state)
+                print(state)
                 if len(state)==0:
                     state['t'] = 0
                     state['m_t'] = torch.zeros_like(p.data)
@@ -42,8 +44,8 @@ class AdamW(Optimizer):
                 t = state['t']
                 t+=1
                 # #algorithsm
-                m_t = beta1*m_t + (1.0-beta1)*p.grad.data
-                v_t = beta2*v_t + (1.0-beta2)*p.grad.data*p.grad.data 
+                m_t = beta1*m_t + (1.0-beta1)*p.grad
+                v_t = beta2*v_t + (1.0-beta2)*p.grad*p.grad 
                 if correct_bias:
                     alpha_t = alpha*math.sqrt(1.0-beta2**t)/(1.0-beta1**t)
                     p.data = p.data - alpha_t*m_t/(torch.sqrt(v_t)+eps)

@@ -25,34 +25,27 @@ class AdamW(Optimizer):
         if closure is not None:
             loss = closure()
         for group in self.param_groups:
-            alpha, betas, eps , wd, correct_bias = group['lr'], group['betas'], group['eps'], group['weight_decay'], group['correct_bias']
+            t = 0
+            m_t = 0
+            v_t = 0
             for p in group['params']:
                 if p.grad is None:
                     continue
                 if p.grad.data.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
-                state = self.state[p]
-                if len(state)==0:
-                    state['t'] = 0
-                    state['m_t'] = torch.zeros_like(p.data)
-                    state['v_t'] = torch.zeros_like(p.data)
-                beta1, beta2 = betas
-                m_t = state['m_t']
-                v_t = state['v_t']
-                t = state['t']
                 t+=1
-                # #algorithsm
-                m_t = beta1*m_t + (1.0-beta1)*p.grad.data
-                v_t = beta2*v_t + (1.0-beta2)*p.grad.data*p.grad.data 
+                alpha, betas, eps , wd, correct_bias = group['lr'], group['betas'], group['eps'], group['weight_decay'], group['correct_bias']
+                beta1 = betas[0]
+                beta2 = betas[1]
+                #algorithsm
+                m_t = beta1*m_t + (1-beta1)*p.grad.data
+                v_t = beta2*v_t + (1-beta2)*p.grad.data**2
                 if correct_bias:
-                    alpha_t = alpha*math.sqrt(1.0-beta2**t)/(1.0-beta1**t)
-                    p.data = p.data - alpha_t*m_t/(torch.sqrt(v_t)+eps)
+                    m_hat = m_t/(1-beta1**t)
+                    v_hat = v_t/(1-beta2**t)
+                    p.data = p.data - alpha*m_hat/(torch.sqrt(v_hat)+eps) - wd*p.data
                 else: 
-                    m_hat = m_t/(1.0-beta1**t)
-                    v_hat = v_t/(1.0-beta2**t)
-                    p.data = p.data - alpha*m_hat/(math.sqrt(v_hat)+eps)
-                p.data -= wd*alpha*p.data
-                state['m_t'] = m_t
-                state['v_t'] = v_t
-                state['t'] = t
+                    alpha_t = alpha*math.sqrt(1-beta2**t)/(1-beta1**t)
+                    p.data = p.data - alpha_t*m_hat/(math.sqrt(v_hat)+eps) -wd*p.data
+            
         return loss
