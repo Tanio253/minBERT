@@ -1,10 +1,8 @@
 from bert import BertModel
-import tokenizer
 import torch
 import torch.nn as nn
 import argparse
 from types import SimpleNamespace
-from torch.utils.data import Dataset, DataLoader
 class BertSentimentClassifier(nn.Module):
     def __init__(self,config):
         super().__init__()
@@ -22,63 +20,24 @@ class BertSentimentClassifier(nn.Module):
         bert_encode = self.do(bert_encode)
         logits = self.sentiment_proj(bert_encode)
         return logits
-    
-class SentimentDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-    def __len__(self):
-        return len(self.data)
-    def __getitem__(self, idx):
-        return self.data[idx]
 def load_data(filepath, flag = 'train'):
-    sents = []
-    sent_ids = []
-    labels = []
-    num_labels = {}
     if flag == 'test':
         with open(filepath) as fp:
             for record in fp:
-                record = record.strip().split('\t')
-                if len(record)==2:
-                    id, sent = record
-                else:
-                    _, id, sent = record
-                sent_ids.append(id)
-                sents.append(sent)
-    else:
-        with open(filepath) as fp:
-            for record in fp:
-                record = record.strip().split('t')
-            if len(record)==3:
-                id, sent, sentiment = record
-            else: 
-                _, id, sent, sentiment = record
-            sent_ids.append(id)
-            sents.append(sent)
-            labels.append(int(sentiment))
-            num_labels.add(sentiment)
-    return (sents, sent_ids, labels), num_labels
-def collate_fn(data):
-    sents, sent_ids , labels = data
-    encoder = tokenizer.from_pretrained('bert-base-uncased')
-    input_ids, attention_mask = encoder(sents, padding = True, truncation = True)
-    return sents, input_ids, attention_mask, sent_ids, labels
+                sent = record['sentence'].strip()
+                
+    with open(filepath) as fp:
+        for record in fp:
+            sent = record['sentence']
+            sent
 def train(args):
-    data, num_labels = load_data(args.train_set, flags = 'train')
-    args['num_labels'] = num_labels
-    model = BertSentimentClassifier(args)
-    model.train()
-    ds = SentimentDataset(data)
-    dl = DataLoader(ds,args.bs,collate_fn=collate_fn)   
-
 def test(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description= 'enter the config for your bert training')
     parser.add_argument('--option', type = str, help = 'choose pretrain mode or finetune mode', default= 'finetune')
     parser.add_argument('--num_epochs', type = int, default= 10)
     parser.add_argument('--lr', type = float, default= 1e-5)
-    parser.add_argument('--bs', type = int, default = 64)
-    parser.add_argument('--dropout-rate', type = float, default = 0.3)
+    parser.add_argumnet('--bs', type = int, default = 64)
     args = parser.parse_args()
     #training sst dataset ---------------------------------
     config = SimpleNamespace(

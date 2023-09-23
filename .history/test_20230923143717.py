@@ -30,11 +30,8 @@ import copy
 filepath = './data/sst_ds/ids-sst-train.csv'
 with open(filepath) as fp:
     for record in fp:
-        record = record.strip().split('\t')
-        if len(record)==3:
-            id, sent, sentiment = record
-        else:
-            _ ,id, sent, sentiment = record
+        
+        id , sent, sentiment = record.strip().split('\t')
         print(id)
         print(sent)
         print(sentiment)
