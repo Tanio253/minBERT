@@ -2,7 +2,7 @@ from bert import BertModel
 import tokenizer
 import torch
 import torch.nn as nn
-import argparse, numpy as np, random
+import argparse, numpy as np
 from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader
 import tqdm
@@ -66,104 +66,42 @@ def collate_fn(data):
     encoder = tokenizer.from_pretrained('bert-base-uncased')
     input_ids, attention_mask = encoder(sents, padding = True, truncation = True)
     return  input_ids, attention_mask, labels, sents, sent_ids
-def evaluation(model, dl):
+def evaluation(model, dl, args):
     model.eval()
     y_pred = []
     y_true = []
-    sents = []
-    sent_ids = []
-    pbar = tqdm(dl, desc = f'evaluation')
-    for batch in pbar:
-        input_ids, attention_mask, labels, sent, sent_id = batch
-        logits = model(input_ids, attention_mask)
-        logits = logits.detach().numpy()
-        logits = np.argmax(logits, axis = 1).flatten()
-        labels = labels.flatten()
-        y_pred.extend(logits)
-        y_true.extend(labels)
-        sents.extend(sent.flatten())
-        sent_ids.extend(sent_id.flatten())
-    f1_s = f1_score(y_true,y_pred, average= 'macro')
-    acc = accuracy_score(y_true, y_pred)
-    return acc, f1_s, y_pred, sents, sent_ids
-def test_evaluation(model, dl):
-    model.eval()
-    y_pred = []
-    pbar = tqdm(dl, desc = f'test time')
-    for batch in pbar:
-        input_ids, attention_mask, _,  sents, sents_id = batch
-        logits = model(input_ids, attention_mask)
-        logits = logits.detach().numpy()
-        logits = np.argmax(logits, axis = 1).flatten()
-        labels = labels.flatten()
-        y_pred.extend(logits)
-    return y_pred, sents, sents_id
-def save_model(model, optimizer, args):
-    save_info = {
-        'model': model.state_dict(),
-        'optim': optimizer.state_dict(),
-        'config': args,
-        'system_rng': random.getstate(),
-        'numpy_rng': np.random.get_state(),
-        'torch_rng': torch.random.get_rng_state(),
-    }
-
-    torch.save(save_info, args.file_path)
-    print(f"save the model to {args.file_path}")
-
-def train(args):
-    best_dev_acc = 0
-    model = BertSentimentClassifier(args)
-    train_data, num_labels = load_data(args.train_set, flag = 'train')
-    args['num_labels'] = num_labels
-    train_data = SentimentDataset(train_data)
-    train_dl = DataLoader(train_data,args.bs,collate_fn=collate_fn) 
-    dev_data, _ = load_data(args.dev_set, flag = 'train')
-    dev_data = SentimentDataset(dev_data)
-    dev_dl = DataLoader(dev_data,args.bs, collate_fn= collate_fn )  
     for epoch in range(args.num_epochs):
-        pbar = tqdm(train_data, desc = f'Epoch: {epoch}' )
+        pbar = tqdm(dl, desc = f'Epoch: {epoch}')
         total_loss = 0
         for i, batch in enumerate(pbar):
+            input_ids, attention_mask, labels = batch
+            logits = model(input_ids, attention_mask)
+            logits = logits.detach().numpy()
+def train(args):
+    model = BertSentimentClassifier(args)
+    data, num_labels = load_data(args.train_set, flag = 'train')
+    args['num_labels'] = num_labels
+    ds = SentimentDataset(data)
+    dl = DataLoader(ds,args.bs,collate_fn=collate_fn)   
+    for epoch in range(args.num_epochs):
+        pbar = tqdm(dl, desc = f'Epoch: {epoch}' )
+        total_loss = 0
+        for batch in pbar:
             input_ids, attention_mask, labels, *_ = batch
             logits = model(input_ids, attention_mask)
-            loss = nn.CrossEntropyLoss()(logits, labels)/args.bs
+            loss = nn.CrossEntropyLoss()(logits, labels)
             optimizer = AdamW(model.parameters(), lr = args.lr)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             pbar.set_postfix({'Loss': loss.item()})
             total_loss+=loss
-        train_acc, train_f1, *_ = evaluation(model, train_dl)
-        dev_acc , dev_f1, *_ = evaluation(model, dev_dl)
-        total_loss/=len(train_dl)
-        if dev_acc>best_dev_acc:
-            dev_acc = best_dev_acc
-            save_model(model, args)
-            print(f'Epoch {epoch+1} training loss: {total_loss: .4f} training acc: {train_acc: .4f} training f1 score: {train_f1} dev acc: {dev_acc: .4f} dev f1 scores: {dev_f1}')
+            print('Loss at iter {} is: {:.4f}'.format(i, loss))
+        avg_loss = total_loss/len(dl)
+        print('Epoch {}: Average Loss is: {:.4f}'.format(epoch+1, avg_loss))
     #evaluate 
 def test(args):
-    test_data, num_labels = load_data(args.test_set, flag = 'test')
-    test_ds = SentimentDataset(test_data)
-    test_dl = DataLoader(test_ds, args.bs, collate_fn= collate_fn)
-    dev_data, num_labels = load_data(args.test_set, flag = 'test')
-    dev_ds = SentimentDataset(dev_data)
-    dev_dl = DataLoader(dev_ds, args.bs, collate_fn= collate_fn)
-    save_info = torch.load(args.file_path)
-    model = BertSentimentClassifier(save_info['config'])
-    model.load_state_dict(save_info['model'])
-    test_pred, test_sents, test_sent_ids = test_evaluation(model, test_dl)
-    acc, f1, dev_pred, dev_sents, dev_sent_ids = evaluation(model, dev_dl)
-    with open(args.dev_out, "w+") as f:
-            print(f"dev acc :: {acc :.4f}")
-            f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-            for i, s, p in zip(dev_sent_ids, dev_sents, dev_pred ):
-                f.write(f"{i} , {s}, {p} \n")
-
-    with open(args.test_out, "w+") as f:
-        f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-        for i, s, p  in zip(test_sent_ids, test_sents, test_pred ):
-            f.write(f"{i} , {s}, {p} \n")
+    data, num_labels = load_data(args.test_set, flag = 'test')
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description= 'enter the config for your bert training')
     parser.add_argument('--option', type = str, help = 'choose pretrain mode or finetune mode', default= 'finetune')
@@ -186,7 +124,6 @@ if __name__ == '__main__':
         test_out = './prediction/'+args.option+'-sst-test.txt',
     )
     train(config)
-    print('Evaluating on SST dataset')
     test(config)
     #training cfimdb dataset -------------------------------------
     config = SimpleNamespace(
@@ -202,6 +139,5 @@ if __name__ == '__main__':
         test_out = './prediction/'+ args.option + '-cfimdb-test.txt',
     )
     train(config)
-    print('Evaluating on Cfimdb dataset')
     test(config)
 
