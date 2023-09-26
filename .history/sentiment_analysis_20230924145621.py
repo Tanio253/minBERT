@@ -5,7 +5,7 @@ import torch.nn as nn
 import argparse, numpy as np, random
 from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
+import tqdm
 from optimizer import AdamW
 from sklearn.metrics import f1_score, accuracy_score
 def seed_everything(seed=11711):
@@ -28,9 +28,9 @@ class BertSentimentClassifier(nn.Module):
                 params.requires_grad = False 
             if config.option == 'finetune':
                 params.requires_grad = True
-    def forward(self, input_ids, attention_mask):
-        out = self.bert(input_ids, attention_mask)
-        bert_encode = self.do(out['pooler_output'])
+    def forward(self, input_ids, attention_mask = None):
+        _, bert_encode = self.bert(input_ids, attention_mask)
+        bert_encode = self.do(bert_encode)
         logits = self.sentiment_proj(bert_encode)
         return logits
     
@@ -68,16 +68,14 @@ def load_data(filepath, flag = 'train'):
                 sents.append(sent)
                 labels.append(int(sentiment))
                 num_labels.add(sentiment)
-    batched_data = tuple(zip(sents, sent_ids, labels))
-    return batched_data, len(num_labels)
+    return (sents, sent_ids, labels), len(num_labels)
 def collate_fn(data):
     sents = [d[0] for d in data]
     sent_ids = [d[1] for d in data]
     labels = [d[2] for d in data]
-    bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True)
-    input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
-    labels = torch.LongTensor(labels)
+    encoder = BertTokenizer.from_pretrained('bert-base-uncased')
+    encoder = encoder(sents, return_tensors= 'pt', padding = True, truncation = True)
+    input_ids, attention_mask = encoder['input_ids'], encoder['attention_mask']
     return  input_ids, attention_mask, labels, sents, sent_ids
 def evaluation(model, dl):
     model.eval()
@@ -136,23 +134,24 @@ def train(args):
     )
     model = BertSentimentClassifier(config)
     train_data = SentimentDataset(train_data)
-    train_dl = DataLoader(train_data, args.bs, collate_fn=collate_fn) 
+    train_dl = DataLoader(train_data,args.bs,collate_fn=collate_fn) 
     dev_data, _ = load_data(args.dev_set, flag = 'train')
     dev_data = SentimentDataset(dev_data)
     dev_dl = DataLoader(dev_data,args.bs, collate_fn= collate_fn )
-    optimizer = AdamW(model.parameters(), lr = args.lr)
+    print(train_dl)  
     for epoch in range(args.num_epochs):
         pbar = tqdm(train_dl, desc = f'Epoch: {epoch}' )
         total_loss = 0
         for batch in pbar:
             input_ids, attention_mask, labels, *_ = batch
             logits = model(input_ids, attention_mask)
-            loss = nn.CrossEntropyLoss()(logits, labels)
+            loss = nn.CrossEntropyLoss()(logits, labels)/args.bs
+            optimizer = AdamW(model.parameters(), lr = args.lr)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             pbar.set_postfix({'Loss': loss.item()})
-            total_loss+=loss.item()
+            total_loss+=loss
         train_acc, train_f1, *_ = evaluation(model, train_dl)
         dev_acc , dev_f1, *_ = evaluation(model, dev_dl)
         total_loss/=len(train_dl)
@@ -160,6 +159,7 @@ def train(args):
             dev_acc = best_dev_acc
             save_model(model, optimizer, args, config)
             print(f'Epoch {epoch+1} training loss: {total_loss: .4f} training acc: {train_acc: .4f} training f1 score: {train_f1} dev acc: {dev_acc: .4f} dev f1 scores: {dev_f1}')
+    #evaluate 
 def test(args):
     test_data, num_labels = load_data(args.test_set, flag = 'test')
     test_ds = SentimentDataset(test_data)

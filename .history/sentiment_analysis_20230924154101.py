@@ -29,7 +29,11 @@ class BertSentimentClassifier(nn.Module):
             if config.option == 'finetune':
                 params.requires_grad = True
     def forward(self, input_ids, attention_mask):
+        print(110)
+        print(input_ids)
+        print(attention_mask)
         out = self.bert(input_ids, attention_mask)
+        print(111)
         bert_encode = self.do(out['pooler_output'])
         logits = self.sentiment_proj(bert_encode)
         return logits
@@ -68,16 +72,12 @@ def load_data(filepath, flag = 'train'):
                 sents.append(sent)
                 labels.append(int(sentiment))
                 num_labels.add(sentiment)
-    batched_data = tuple(zip(sents, sent_ids, labels))
-    return batched_data, len(num_labels)
+    return (sents, sent_ids, labels), len(num_labels)
 def collate_fn(data):
-    sents = [d[0] for d in data]
-    sent_ids = [d[1] for d in data]
-    labels = [d[2] for d in data]
+    sents, sent_ids, labels = data
     bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True)
     input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
-    labels = torch.LongTensor(labels)
     return  input_ids, attention_mask, labels, sents, sent_ids
 def evaluation(model, dl):
     model.eval()
@@ -136,7 +136,7 @@ def train(args):
     )
     model = BertSentimentClassifier(config)
     train_data = SentimentDataset(train_data)
-    train_dl = DataLoader(train_data, args.bs, collate_fn=collate_fn) 
+    train_dl = DataLoader(train_data,args.bs,collate_fn=collate_fn) 
     dev_data, _ = load_data(args.dev_set, flag = 'train')
     dev_data = SentimentDataset(dev_data)
     dev_dl = DataLoader(dev_data,args.bs, collate_fn= collate_fn )
@@ -146,13 +146,20 @@ def train(args):
         total_loss = 0
         for batch in pbar:
             input_ids, attention_mask, labels, *_ = batch
+            print(105)
+            print(input_ids)
             logits = model(input_ids, attention_mask)
+            print(106)
             loss = nn.CrossEntropyLoss()(logits, labels)
+            print(104)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            print(107)
             pbar.set_postfix({'Loss': loss.item()})
             total_loss+=loss.item()
+            print(103)
+        print(102)
         train_acc, train_f1, *_ = evaluation(model, train_dl)
         dev_acc , dev_f1, *_ = evaluation(model, dev_dl)
         total_loss/=len(train_dl)

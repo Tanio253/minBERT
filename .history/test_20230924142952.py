@@ -32,7 +32,7 @@ def load_data(filepath, flag = 'train'):
     sents = []
     sent_ids = []
     labels = []
-    num_labels = set()
+    num_labels = {}
     if flag == 'test':
         with open(filepath) as fp:
             for record in fp:
@@ -60,4 +60,4 @@ def load_data(filepath, flag = 'train'):
 (sents, sent_ids, labels), num_labels = load_data(filepath)
 print(sents)
 print(sent_ids)
-print(num_labels)
+print(labels)

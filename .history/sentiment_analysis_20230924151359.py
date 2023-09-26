@@ -28,9 +28,9 @@ class BertSentimentClassifier(nn.Module):
                 params.requires_grad = False 
             if config.option == 'finetune':
                 params.requires_grad = True
-    def forward(self, input_ids, attention_mask):
-        out = self.bert(input_ids, attention_mask)
-        bert_encode = self.do(out['pooler_output'])
+    def forward(self, input_ids, attention_mask = None):
+        _, bert_encode = self.bert(input_ids, attention_mask)
+        bert_encode = self.do(bert_encode)
         logits = self.sentiment_proj(bert_encode)
         return logits
     
@@ -68,16 +68,18 @@ def load_data(filepath, flag = 'train'):
                 sents.append(sent)
                 labels.append(int(sentiment))
                 num_labels.add(sentiment)
-    batched_data = tuple(zip(sents, sent_ids, labels))
-    return batched_data, len(num_labels)
+    return (sents, sent_ids, labels), len(num_labels)
 def collate_fn(data):
-    sents = [d[0] for d in data]
-    sent_ids = [d[1] for d in data]
-    labels = [d[2] for d in data]
-    bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True)
-    input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
-    labels = torch.LongTensor(labels)
+    # sents = [d[0] for d in data]
+    # sent_ids = [d[1] for d in data]
+    # labels = [d[2] for d in data]
+    # print(sents)
+    # print(sent_ids)
+    # print(labels)
+    sents, sent_ids, labels = data
+    encoder = BertTokenizer.from_pretrained('bert-base-uncased')
+    encoder = encoder(sents, return_tensors= 'pt', padding = True, truncation = True)
+    input_ids, attention_mask = encoder['input_ids'], encoder['attention_mask']
     return  input_ids, attention_mask, labels, sents, sent_ids
 def evaluation(model, dl):
     model.eval()
@@ -136,7 +138,7 @@ def train(args):
     )
     model = BertSentimentClassifier(config)
     train_data = SentimentDataset(train_data)
-    train_dl = DataLoader(train_data, args.bs, collate_fn=collate_fn) 
+    train_dl = DataLoader(train_data,args.bs,collate_fn=collate_fn) 
     dev_data, _ = load_data(args.dev_set, flag = 'train')
     dev_data = SentimentDataset(dev_data)
     dev_dl = DataLoader(dev_data,args.bs, collate_fn= collate_fn )

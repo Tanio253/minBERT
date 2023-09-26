@@ -74,10 +74,10 @@ def collate_fn(data):
     sents = [d[0] for d in data]
     sent_ids = [d[1] for d in data]
     labels = [d[2] for d in data]
+    print(len(sents))
     bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True)
     input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
-    labels = torch.LongTensor(labels)
     return  input_ids, attention_mask, labels, sents, sent_ids
 def evaluation(model, dl):
     model.eval()
