@@ -7,7 +7,6 @@ from optimizer import AdamW
 import argparse, random, numpy as np
 from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import accuracy_score
 def seed_everything(seed=11711):
     random.seed(seed)
     np.random.seed(seed)
@@ -16,56 +15,6 @@ def seed_everything(seed=11711):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-def evaluation(model, dl):
-    model.eval()
-    y_pred = []
-    y_true = []
-    sents = []
-    sent_ids = []
-    pbar = tqdm(dl, desc = f'evaluation')
-    with torch.no_grad():
-      for batch in pbar:
-          input_ids, attention_mask, labels, sent, sent_id = batch
-          logits = model(input_ids, attention_mask)
-          logits = logits.cpu().numpy() 
-          logits = np.argmax(logits, axis = 1).flatten()
-          labels = labels.cpu().flatten()
-          y_pred.extend(logits)
-          y_true.extend(labels)
-          sents.extend(sent)
-          sent_ids.extend(sent_id)
-      acc = accuracy_score(y_true, y_pred)
-      return acc, y_pred, sents, sent_ids
-def test_evaluation(model, dl):
-    model.eval()
-    y_pred = []
-    sents = []
-    sents_id = []
-    pbar = tqdm(dl, desc = f'test time')
-    with torch.no_grad():
-      for batch in pbar:
-          input_ids, attention_mask, _,  sent, sent_id = batch
-          logits = model(input_ids, attention_mask)
-          logits = logits.cpu().numpy()
-          logits = np.argmax(logits, axis = 1).flatten()
-          y_pred.extend(logits)
-          sents.extend(sent)
-          sents_id.extend(sent_id)
-    return y_pred, sents, sents_id
-def save_model(model, optimizer, args, config):
-    save_info = {
-        'model': model.state_dict(),
-        'optim': optimizer.state_dict(),
-        'config': config,
-        'args': args,
-        'system_rng': random.getstate(),
-        'numpy_rng': np.random.get_state(),
-        'torch_rng': torch.random.get_rng_state(),
-    }
-
-    torch.save(save_info, args.filepath)
-    print(f"save the model to {args.filepath}")
-
 class MultiBert(nn.Module):
     def __init__(self, config):
         super.__init__(self)
