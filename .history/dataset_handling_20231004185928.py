@@ -16,3 +16,4 @@ class MultitaskDataset(Dataset):
         return len(self.data)
     def __getitem__(self, idx):
         return self.data[idx]
+print(load_data('/home/tanio/cs224n/minBERT/data/sss/ids-sst-train.csv', flag = 1)[0])

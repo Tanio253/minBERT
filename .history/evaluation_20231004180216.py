@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import tqdm
 from sklearn.metrics import accuracy_score
-from typing import Dict
+from types import Dict
 def MultiEvaluation(model, sst_dl, quora_dl, sts_dl):
     model.eval()
     y_true_sst = []
@@ -61,9 +61,9 @@ def MultiEvaluation(model, sst_dl, quora_dl, sts_dl):
             sent_ids_sts.extend(sent_id)
         sts_pearson = np.corrcoef(y_pred_sts, y_true_sts)[0,1]
     print(f'SST accuracy: {sst_accuracy: .4f} Quora Accuracy: {quora_accuracy: .4f} STS Pearson Similarity: {sts_pearson: .4f}')
-    return Dict(sst_accuracy= sst_accuracy, sst_pred = y_pred_sst, sst_sents = sents_sst, sst_sent_ids = sent_ids_sst, quora_accuracy = quora_accuracy,
-                quora_sent1 = sents_quora1, quora_pred = y_pred_sst, quora_sent2 = sents_quora2, quora_sent_id = sent_ids_quora,
-                sts_pearson = sts_pearson, sts_pred = y_pred_sts, sts_sent1 = sents_sts1, sts_sent2 = sents_sts2, sts_sent_id = sent_ids_sts,)
+    return Dict(sst_accuracy= sst_accuracy, sst_sents = sents_sst, sst_sent_ids = sent_ids_sst, quora_accuracy = quora_accuracy,
+                quora_sent1 = sents_quora1, quora_sent2 = sents_quora2, quora_sent_id = sent_ids_quora,
+                sts_pearson = sts_pearson, sts_sent1 = sents_sts1, sts_sent2 = sents_sts2, sts_sent_id = sent_ids_sts,)
 
 
 def MultiEvaluationTest(model, sst_dl, quora_dl, sts_dl):

@@ -1,5 +1,5 @@
 import torch
-from tqdm import tqdm
+import tqdm
 import torch.nn as nn
 from dataset_handling import load_data, MultitaskDataset
 from bert import BertModel
@@ -35,13 +35,10 @@ def save_model(model, optimizer, config):
 
 class MultiBert(nn.Module):
     def __init__(self, config):
-        super().__init__()
+        super.__init__(self)
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         self.do = nn.Dropout(p = config.dropout_rate)
         self.config = config
-        self.pp_proj = nn.Linear(self.config.hidden_size*2, 1)
-        self.simi_proj = nn.Linear(self.config.hidden_size*2, 1)
-        self.sentiment_proj = nn.Linear(self.config.hidden_size, 5)
         if config.option == 'pretrain':
             for p in self.bert.parameters():
                 p.requires_grad = False
@@ -53,29 +50,32 @@ class MultiBert(nn.Module):
         bert_output = self.do(bert_output['pooler_output'])
         return bert_output
     def predict_paraphrase(self, input_ids1, attention_mask1, input_ids2, attention_mask2):
+        proj = nn.Linear(self.config.hidden_size*2, 1)
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
         attention_mask = torch.concat((attention_mask1, attention_mask2), dim = -1)
         logits = self.forward(input_ids, attention_mask)
-        logits = self.para_proj(logits)
+        logits = proj(logits)
         logits = nn.Sigmoid(logits).round().float()
         return logits
     def predict_similarity(self, input_ids1, attention_mask1, input_ids2, attention_mask2):
+        proj = nn.Linear(self.config.hidden_size*2, 1)
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
         attention_mask = torch.concat((attention_mask1, attention_mask2), dim = -1)
         logits = self.forward(input_ids, attention_mask)
-        logits = self.simi_proj(logits)
+        logits = proj(logits)
         return logits
     def predict_sentiment(self, input_ids, attention_mask):
+        proj = nn.Linear(self.config.hidden_size, 5)
         logits = self.forward(input_ids= input_ids, attention_mask= attention_mask)
-        logits = self.sentiment_proj(logits)
+        logits = proj(logits)
         return logits
     
 
 def custom_collate(data, device, sentpair: bool):
-    if not sentpair:
+    if sentpair is not None:
         sents = [d[1] for d in data]
         sent_ids = [d[0] for d in data]
-        labels = [float(d[2]) for d in data]
+        labels = [d[2] for d in data]
         bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True  )
         input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
@@ -86,7 +86,7 @@ def custom_collate(data, device, sentpair: bool):
         sents1 = [d[1] for d in data]
         sents2 = [d[2] for d in data]
         sent_ids = [d[0] for d in data]
-        labels = [float(d[3]) for d in data]
+        labels = [d[3] for d in data]
         bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         bert_tokenizer = bert_tokenizer(sents1, return_tensors= 'pt', padding = True, truncation = True  )
         input_ids1, attention_mask1 = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
@@ -100,6 +100,7 @@ def custom_collate(data, device, sentpair: bool):
         input_ids = tuple(input_ids1, input_ids2)
         attention_mask = tuple(attention_mask1, attention_mask2)
         sents = tuple(sents1, sents2)
+    
     return  input_ids, attention_mask, labels, sents, sent_ids
 
 def train(config):
@@ -116,7 +117,7 @@ def train(config):
     sst_dev_ds = load_data(config.sst_dev, flag = 1)
     sst_dev_ds = MultitaskDataset(sst_dev_ds)
     sst_dev_dl = DataLoader(sst_dev_ds, config.bs, shuffle = True, collate_fn= collate_fn)
-    quora_ds = load_data(config.quora_training, flag = 2)
+    quora_ds = load_data(config.quora_traning, flag = 2)
     quora_ds = MultitaskDataset(quora_ds)
     quora_dl = DataLoader(quora_ds, config.bs, shuffle = True, collate_fn = sentpair_collate_fn)
     quora_dev_ds = load_data(config.quora_dev, flag = 2)
@@ -129,7 +130,6 @@ def train(config):
     sts_dev_ds = MultitaskDataset(sts_dev_ds)
     sts_dev_dl = DataLoader(sts_dev_ds, config.bs, shuffle = True, collate_fn= sentpair_collate_fn)
     model = MultiBert(config)
-    model.to(device)
     optimizer = AdamW(model.parameters(), config.lr)
     for e in range(config.num_epochs):
         for batch in tqdm(sst_dl, desc = f'Epoch: {e+1}'):
@@ -137,7 +137,7 @@ def train(config):
             input_ids, attention_mask, labels, *_ = batch
             optimizer.zero_grad()
             logits = model.predict_sentiment(input_ids, attention_mask)
-            loss = nn.CrossEntropyLoss()(logits, labels.long())
+            loss = nn.CrossEntropyLoss()(logits, labels)
             loss.backward()
             optimizer.step()
         for batch in tqdm(quora_dl, desc = f'Epoch: {e+1}'):
@@ -166,15 +166,9 @@ def train(config):
         if  overall_accuracy > best_multitask_accuracy:
             best_multitask_accuracy = overall_accuracy
             save_model(model, optimizer, config)
-        sst_accuracy = multitask_accuracy['sst_accuracy']
-        sst_dev_accuracy = multitask_dev_accuracy['sst_accuracy']
-        quora_accuracy = multitask_accuracy['quora_accuracy']
-        quora_dev_accuracy = multitask_dev_accuracy['quora_accuracy']
-        sts_accuracy = multitask_accuracy['sts_accuracy']
-        sts_dev_accuracy = multitask_dev_accuracy['sts_accuracy']
-        print(f'Epoch {e+1} sst training: {sst_accuracy: .4f} sst dev: {sst_dev_accuracy: .4f} \
-              quora training: {quora_accuracy: .4f} quora dev: {quora_dev_accuracy: .4f} \
-              sts training: {sts_accuracy: .4f} sts dev: {sts_dev_accuracy: .4f} \
+        print(f'Epoch {e+1} sst training: {multitask_accuracy['sst_accuracy']: .4f} sst dev: {multitask_dev_accuracy['sst_accuracy']: .4f} \
+              quora training: {multitask_accuracy['quora_accuracy']: .4f} quora dev: {multitask_dev_accuracy['quora_accuracy']: .4f} \
+              sts training: {multitask_accuracy['sts_accuracy']: .4f} sts dev: {multitask_dev_accuracy['sts_accuracy']: .4f} \
               overall accuracy: {overall_accuracy: .4f}')
     print(f'Best overall accuracy: {best_multitask_accuracy: .4f}')
 
@@ -182,37 +176,20 @@ def train(config):
 def test(config):
     with torch.no_grad():
         device = 'cuda' if config.use_gpu else 'cpu'
-        collate_fn = partial(custom_collate, device = device, sentpair = 0)
-        sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1)
         sst_test = load_data(config.sst_test, flag = 1)
         sst_test = MultitaskDataset(sst_test)
+        collate_fn = partial(custom_collate, device = device, sentpair = 0)
+        sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1)
         sst_test = DataLoader(sst_test, config.bs, collate_fn= collate_fn)
         sst_dev = load_data(config.sst_dev, flag = 1)
         sst_dev = MultitaskDataset(sst_dev)
         sst_dev = DataLoader(sst_dev, config.bs, collate_fn= collate_fn)
-        test_result = MultiEvaluationTest(model, sst_test)
-        eval_result = MultiEvaluation(model, sst_dev)
-        quora_test = load_data(config.quora_test, flag = 1)
-        quora_test = MultitaskDataset(quora_test)
-        quora_test = DataLoader(quora_test, config.bs, collate_fn= sentpair_collate_fn)
-        quora_dev = load_data(config.quora_dev, flag = 1)
-        quora_dev = MultitaskDataset(quora_dev)
-        quora_dev = DataLoader(quora_dev, config.bs, collate_fn= sentpair_collate_fn)
-        test_result = MultiEvaluationTest(model, quora_test)
-        eval_result = MultiEvaluation(model, quora_dev)
-        sts_test = load_data(config.sts_test, flag = 1)
-        sts_test = MultitaskDataset(sts_test)
-        sts_test = DataLoader(sts_test, config.bs, collate_fn= sentpair_collate_fn)
-        sts_dev = load_data(config.sts_dev, flag = 1)
-        sts_dev = MultitaskDataset(sts_dev)
-        sts_dev = DataLoader(sts_dev, config.bs, collate_fn= sentpair_collate_fn)
-        test_result = MultiEvaluationTest(model, sts_test)
-        eval_result = MultiEvaluation(model, sts_dev)
         save_info = torch.load(config.filepath)
         model = MultiBert(save_info['config'])
         model.load_state_dict(save_info['model'])
         model = model.to(device)
-        
+        test_result = MultiEvaluationTest(model, sst_test)
+        eval_result = MultiEvaluation(model, sst_dev)
 
         with open(config.sst_dev_out, "w+") as f:
                 print(f"sst dev acc :: {eval_result['sst_accuracy'] :.4f}")
@@ -272,14 +249,14 @@ if __name__ == '__main__':
         sst_test = './data/sst_ds/ids-sst-test-student.csv',
         sst_dev_out = './prediction/'+args.option+'-sst-dev.csv',
         sst_test_out = './prediction/'+args.option+'-sst-test.csv',
-        quora_training = './data/quora/quora-train.csv',
-        quora_dev = './data/quora/quora-dev.csv',
-        quora_test = './data/quora/quora-test-student.csv',
+        quora_training = './data/quora/ids-quora-train.csv',
+        quora_dev = './data/quora/ids-quora-dev.csv',
+        quora_test = './data/quora/ids-quora-test-student.csv',
         quora_dev_out = './prediction/'+args.option+'-quora-dev.csv',
         quora_test_out = './prediction/'+args.option+'-quora-test.csv',
-        sts_training = './data/sts/sts-train.csv',
-        sts_dev = './data/sts/sts-dev.csv',
-        sts_test = './data/sts/sts-test-student.csv',
+        sts_training = './data/sts/ids-sts-train.csv',
+        sts_dev = './data/sts/ids-sts-dev.csv',
+        sts_test = './data/sts/ids-sts-test-student.csv',
         sts_dev_out = './prediction/'+args.option+'-sts-dev.csv',
         sts_test_out = './prediction/'+args.option+'-sts-test.csv',
         use_gpu = args.use_gpu,

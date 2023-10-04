@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import tqdm
 from sklearn.metrics import accuracy_score
-from typing import Dict
+from types import Dict
 def MultiEvaluation(model, sst_dl, quora_dl, sts_dl):
     model.eval()
     y_true_sst = []

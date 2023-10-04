@@ -39,9 +39,6 @@ class MultiBert(nn.Module):
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         self.do = nn.Dropout(p = config.dropout_rate)
         self.config = config
-        self.pp_proj = nn.Linear(self.config.hidden_size*2, 1)
-        self.simi_proj = nn.Linear(self.config.hidden_size*2, 1)
-        self.sentiment_proj = nn.Linear(self.config.hidden_size, 5)
         if config.option == 'pretrain':
             for p in self.bert.parameters():
                 p.requires_grad = False
@@ -53,21 +50,24 @@ class MultiBert(nn.Module):
         bert_output = self.do(bert_output['pooler_output'])
         return bert_output
     def predict_paraphrase(self, input_ids1, attention_mask1, input_ids2, attention_mask2):
+        proj = nn.Linear(self.config.hidden_size*2, 1)
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
         attention_mask = torch.concat((attention_mask1, attention_mask2), dim = -1)
         logits = self.forward(input_ids, attention_mask)
-        logits = self.para_proj(logits)
+        logits = proj(logits)
         logits = nn.Sigmoid(logits).round().float()
         return logits
     def predict_similarity(self, input_ids1, attention_mask1, input_ids2, attention_mask2):
+        proj = nn.Linear(self.config.hidden_size*2, 1)
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
         attention_mask = torch.concat((attention_mask1, attention_mask2), dim = -1)
         logits = self.forward(input_ids, attention_mask)
-        logits = self.simi_proj(logits)
+        logits = proj(logits)
         return logits
     def predict_sentiment(self, input_ids, attention_mask):
+        proj = nn.Linear(self.config.hidden_size, 5)
         logits = self.forward(input_ids= input_ids, attention_mask= attention_mask)
-        logits = self.sentiment_proj(logits)
+        logits = proj(logits)
         return logits
     
 
@@ -129,7 +129,6 @@ def train(config):
     sts_dev_ds = MultitaskDataset(sts_dev_ds)
     sts_dev_dl = DataLoader(sts_dev_ds, config.bs, shuffle = True, collate_fn= sentpair_collate_fn)
     model = MultiBert(config)
-    model.to(device)
     optimizer = AdamW(model.parameters(), config.lr)
     for e in range(config.num_epochs):
         for batch in tqdm(sst_dl, desc = f'Epoch: {e+1}'):
