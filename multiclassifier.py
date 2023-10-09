@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 import torch.nn as nn
-from dataset_handling import load_data, MultitaskDataset
+from dataset_handling import load_data, MultitaskDataset, test_load_data
 from bert import BertModel
 from optimizer import AdamW
 import argparse, random, numpy as np
@@ -39,8 +39,8 @@ class MultiBert(nn.Module):
         self.bert = BertModel.from_pretrained('bert-base-uncased')
         self.do = nn.Dropout(p = config.dropout_rate)
         self.config = config
-        self.pp_proj = nn.Linear(self.config.hidden_size*2, 1)
-        self.simi_proj = nn.Linear(self.config.hidden_size*2, 1)
+        self.pp_proj = nn.Linear(self.config.hidden_size, 1)
+        self.simi_proj = nn.Linear(self.config.hidden_size, 1)
         self.sentiment_proj = nn.Linear(self.config.hidden_size, 5)
         if config.option == 'pretrain':
             for p in self.bert.parameters():
@@ -56,8 +56,8 @@ class MultiBert(nn.Module):
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
         attention_mask = torch.concat((attention_mask1, attention_mask2), dim = -1)
         logits = self.forward(input_ids, attention_mask)
-        logits = self.para_proj(logits)
-        logits = nn.Sigmoid(logits).round().float()
+        logits = self.pp_proj(logits)
+        logits = nn.Sigmoid()(logits).round().float()
         return logits
     def predict_similarity(self, input_ids1, attention_mask1, input_ids2, attention_mask2):
         input_ids = torch.concat((input_ids1,input_ids2), dim = -1)
@@ -71,11 +71,11 @@ class MultiBert(nn.Module):
         return logits
     
 
-def custom_collate(data, device, sentpair: bool):
+def custom_collate(data, device, sentpair: bool, flag = 'train'):
     if not sentpair:
         sents = [d[1] for d in data]
         sent_ids = [d[0] for d in data]
-        labels = [float(d[2]) for d in data]
+        labels = [float(d[2]) for d in data] if flag == 'train' else 0.0 
         bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         bert_tokenizer = bert_tokenizer(sents, return_tensors= 'pt', padding = True, truncation = True  )
         input_ids, attention_mask = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
@@ -86,26 +86,26 @@ def custom_collate(data, device, sentpair: bool):
         sents1 = [d[1] for d in data]
         sents2 = [d[2] for d in data]
         sent_ids = [d[0] for d in data]
-        labels = [float(d[3]) for d in data]
+        labels = [float(d[3]) if d[3]!= '' else 1.0 for d in data ] if flag == 'train' else 0.0
         bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        bert_tokenizer = bert_tokenizer(sents1, return_tensors= 'pt', padding = True, truncation = True  )
-        input_ids1, attention_mask1 = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
-        bert_tokenizer = bert_tokenizer(sents2, return_tensors= 'pt', padding = True, truncation = True  )
-        input_ids2, attention_mask2 = bert_tokenizer['input_ids'], bert_tokenizer['attention_mask']
+        bert_tokenize = bert_tokenizer(sents1, return_tensors= 'pt', padding = True, truncation = True  )
+        input_ids1, attention_mask1 = bert_tokenize['input_ids'], bert_tokenize['attention_mask']
+        bert_tokenize = bert_tokenizer(sents2, return_tensors= 'pt', padding = True, truncation = True  )
+        input_ids2, attention_mask2 = bert_tokenize['input_ids'], bert_tokenize['attention_mask']
         input_ids1 = input_ids1.to(device)
         attention_mask1 = attention_mask1.to(device)
         input_ids2 = input_ids2.to(device)
         attention_mask2 = attention_mask2.to(device)
         labels = torch.tensor(labels, device = device)
-        input_ids = tuple(input_ids1, input_ids2)
-        attention_mask = tuple(attention_mask1, attention_mask2)
-        sents = tuple(sents1, sents2)
+        input_ids = tuple((input_ids1, input_ids2))
+        attention_mask = tuple((attention_mask1, attention_mask2))
+        sents = tuple((sents1, sents2))
     return  input_ids, attention_mask, labels, sents, sent_ids
 
 def train(config):
     device = 'cuda' if config.use_gpu else 'cpu'
-    sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1)
-    collate_fn = partial(custom_collate, device = device, sentpair = 0)
+    sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1, flag = 'train')
+    collate_fn = partial(custom_collate, device = device, sentpair = 0, flag = 'train')
     best_multitask_accuracy = 0
     best_sst_dev_acc = []
     best_quora_dev_acc = []
@@ -132,6 +132,24 @@ def train(config):
     model.to(device)
     optimizer = AdamW(model.parameters(), config.lr)
     for e in range(config.num_epochs):
+        for batch in tqdm(quora_dl, desc = f'Epoch: {e+1}'):
+            input_ids, attention_mask, labels, *_ = batch
+            input_ids1, input_ids2 = input_ids
+            attention_mask1, attention_mask2 = attention_mask
+            optimizer.zero_grad()
+            logits = model.predict_paraphrase(input_ids1, attention_mask1, input_ids2, attention_mask2)
+            loss = nn.BCELoss()(logits.squeeze(1), labels)
+            loss.backward()
+            optimizer.step()
+        for batch in tqdm(sts_dl, desc = f'Epoch: {e+1}'):
+            input_ids, attention_mask, labels, *_ = batch
+            input_ids1, input_ids2 = input_ids
+            attention_mask1, attention_mask2 = attention_mask
+            optimizer.zero_grad()
+            logits = model.predict_similarity(input_ids1, attention_mask1, input_ids2, attention_mask2)
+            loss = nn.MSELoss()(logits.squeeze(1), labels)
+            loss.backward()
+            optimizer.step()
         for batch in tqdm(sst_dl, desc = f'Epoch: {e+1}'):
             model.train()
             input_ids, attention_mask, labels, *_ = batch
@@ -140,22 +158,8 @@ def train(config):
             loss = nn.CrossEntropyLoss()(logits, labels.long())
             loss.backward()
             optimizer.step()
-        for batch in tqdm(quora_dl, desc = f'Epoch: {e+1}'):
-            input_ids1, attention_mask1, input_ids2, attention_mask2, labels, *_ = batch
-            optimizer.zero_grad()
-            logits = model.predict_paraphrase(input_ids1, attention_mask1, input_ids2, attention_mask2)
-            loss = nn.BCELoss()(logits, labels)
-            loss.backward()
-            optimizer.step()
-        for batch in tqdm(sts_dl, desc = f'Epoch: {e+1}'):
-            input_ids1, attention_mask1, input_ids2, attention_mask2, labels, *_ = batch
-            optimizer.zero_grad()
-            logits = model.predict_similarity(input_ids1, attention_mask1, input_ids2, attention_mask2)
-            loss = nn.MSELoss(logits, labels)
-            loss.backward()
-            optimizer.step()
         multitask_accuracy = MultiEvaluation(model, sst_dl, quora_dl, sts_dl)
-        multitask_dev_accuracy = MultiEvaluationTest(model, sst_dev_dl, quora_dev_dl, sts_dev_dl)
+        multitask_dev_accuracy = MultiEvaluation(model, sst_dev_dl, quora_dev_dl, sts_dev_dl)
         if multitask_dev_accuracy['sst_accuracy']>best_sst_dev_acc:
             best_sst_dev_acc = multitask_dev_accuracy['sst_accuracy']
         if multitask_dev_accuracy['quora_accuracy']>best_quora_dev_acc:
@@ -163,6 +167,7 @@ def train(config):
         if multitask_dev_accuracy['sts_pearson']>best_sts_dev_acc: # (-1,1)
             best_sts_dev_acc = multitask_dev_accuracy['sts_pearson']
         overall_accuracy = multitask_dev_accuracy['sst_accuracy']+ multitask_dev_accuracy['quora_accuracy'] + (multitask_dev_accuracy['sts_pearson']+1)/2.0
+        overall_accuracy/=3
         if  overall_accuracy > best_multitask_accuracy:
             best_multitask_accuracy = overall_accuracy
             save_model(model, optimizer, config)
@@ -170,11 +175,11 @@ def train(config):
         sst_dev_accuracy = multitask_dev_accuracy['sst_accuracy']
         quora_accuracy = multitask_accuracy['quora_accuracy']
         quora_dev_accuracy = multitask_dev_accuracy['quora_accuracy']
-        sts_accuracy = multitask_accuracy['sts_accuracy']
-        sts_dev_accuracy = multitask_dev_accuracy['sts_accuracy']
+        sts_pearson = multitask_accuracy['sts_pearson']
+        sts_dev_pearson = multitask_dev_accuracy['sts_pearson']
         print(f'Epoch {e+1} sst training: {sst_accuracy: .4f} sst dev: {sst_dev_accuracy: .4f} \
               quora training: {quora_accuracy: .4f} quora dev: {quora_dev_accuracy: .4f} \
-              sts training: {sts_accuracy: .4f} sts dev: {sts_dev_accuracy: .4f} \
+              sts training: {sts_pearson: .4f} sts dev: {sts_dev_pearson: .4f} \
               overall accuracy: {overall_accuracy: .4f}')
     print(f'Best overall accuracy: {best_multitask_accuracy: .4f}')
 
@@ -182,37 +187,36 @@ def train(config):
 def test(config):
     with torch.no_grad():
         device = 'cuda' if config.use_gpu else 'cpu'
-        collate_fn = partial(custom_collate, device = device, sentpair = 0)
-        sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1)
-        sst_test = load_data(config.sst_test, flag = 1)
-        sst_test = MultitaskDataset(sst_test)
-        sst_test = DataLoader(sst_test, config.bs, collate_fn= collate_fn)
-        sst_dev = load_data(config.sst_dev, flag = 1)
-        sst_dev = MultitaskDataset(sst_dev)
-        sst_dev = DataLoader(sst_dev, config.bs, collate_fn= collate_fn)
-        test_result = MultiEvaluationTest(model, sst_test)
-        eval_result = MultiEvaluation(model, sst_dev)
-        quora_test = load_data(config.quora_test, flag = 1)
-        quora_test = MultitaskDataset(quora_test)
-        quora_test = DataLoader(quora_test, config.bs, collate_fn= sentpair_collate_fn)
-        quora_dev = load_data(config.quora_dev, flag = 1)
-        quora_dev = MultitaskDataset(quora_dev)
-        quora_dev = DataLoader(quora_dev, config.bs, collate_fn= sentpair_collate_fn)
-        test_result = MultiEvaluationTest(model, quora_test)
-        eval_result = MultiEvaluation(model, quora_dev)
-        sts_test = load_data(config.sts_test, flag = 1)
-        sts_test = MultitaskDataset(sts_test)
-        sts_test = DataLoader(sts_test, config.bs, collate_fn= sentpair_collate_fn)
-        sts_dev = load_data(config.sts_dev, flag = 1)
-        sts_dev = MultitaskDataset(sts_dev)
-        sts_dev = DataLoader(sts_dev, config.bs, collate_fn= sentpair_collate_fn)
-        test_result = MultiEvaluationTest(model, sts_test)
-        eval_result = MultiEvaluation(model, sts_dev)
         save_info = torch.load(config.filepath)
         model = MultiBert(save_info['config'])
         model.load_state_dict(save_info['model'])
         model = model.to(device)
+        collate_fn = partial(custom_collate, device = device, sentpair = 0, flag = 'train')
+        sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1, flag = 'train')
+        test_collate_fn = partial(custom_collate, device = device, sentpair = 0, flag = 'test')
+        test_sentpair_collate_fn = partial(custom_collate, device = device, sentpair = 1, flag = 'test')
+        sst_test = test_load_data(config.sst_test, flag = 1)
+        sst_test = MultitaskDataset(sst_test)
+        sst_test = DataLoader(sst_test, config.bs, collate_fn= test_collate_fn)
+        sst_dev = load_data(config.sst_dev, flag = 1)
+        sst_dev = MultitaskDataset(sst_dev)
+        sst_dev = DataLoader(sst_dev, config.bs, collate_fn= collate_fn)
+        quora_test = test_load_data(config.quora_test, flag = 2)
+        quora_test = MultitaskDataset(quora_test)
+        quora_test = DataLoader(quora_test, config.bs, collate_fn= test_sentpair_collate_fn)
+        quora_dev = load_data(config.quora_dev, flag = 2)
+        quora_dev = MultitaskDataset(quora_dev)
+        quora_dev = DataLoader(quora_dev, config.bs, collate_fn= sentpair_collate_fn)
+        sts_test = test_load_data(config.sts_test, flag = 2)
+        sts_test = MultitaskDataset(sts_test)
+        sts_test = DataLoader(sts_test, config.bs, collate_fn= test_sentpair_collate_fn)
+        sts_dev = load_data(config.sts_dev, flag = 2)
+        sts_dev = MultitaskDataset(sts_dev)
+        sts_dev = DataLoader(sts_dev, config.bs, collate_fn= sentpair_collate_fn)
+        eval_result = MultiEvaluation(model, sst_dev, quora_dev, sts_dev)
+        test_result = MultiEvaluationTest(model, sst_test, quora_test, sts_test)
         
+
 
         with open(config.sst_dev_out, "w+") as f:
                 print(f"sst dev acc :: {eval_result['sst_accuracy'] :.4f}")
@@ -227,25 +231,25 @@ def test(config):
         
         with open(config.quora_dev_out, "w+") as f:
                 print(f"quora dev acc :: {eval_result['quora_accuracy'] :.4f}")
-                f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-                for i, s, p in zip(eval_result['quora_sent_ids'], eval_result['quora_sents'], eval_result['quora_pred']):
-                    f.write(f"{i} , {s}, {p} \n")
+                f.write(f"Id \t Sentence1 \t Sentence2 \t Predicted_Sentiment \n")
+                for i, s1, s2, p in zip(eval_result['quora_sent_ids'], eval_result['quora_sent1'], eval_result['quora_sent2'], eval_result['quora_pred']):
+                    f.write(f"{i} , {s1}, {s2}, {p} \n")
 
         with open(config.quora_test_out, "w+") as f:
-            f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-            for i, s, p  in zip(test_result['quora_sent_ids'], test_result['quora_sents'], test_result['quora_pred'] ):
-                f.write(f"{i} , {s}, {p} \n")
+            f.write(f"Id \t Sentence1 \t Sentence2 \t Predicted_Sentiment \n")
+            for i, s1, s2, p  in zip(test_result['quora_sent_ids'], test_result['quora_sent1'], test_result['quora_sent2'], test_result['quora_pred'] ):
+                f.write(f"{i} , {s1}, {s2}, {p} \n")
         
         with open(config.sts_dev_out, "w+") as f:
-                print(f"sts dev acc :: {eval_result['sts_accuracy'] :.4f}")
-                f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-                for i, s, p in zip(eval_result['sts_sent_ids'], eval_result['sts_sents'], eval_result['sts_pred']):
-                    f.write(f"{i} , {s}, {p} \n")
+                print(f"sts dev acc :: {eval_result['sts_pearson'] :.4f}")
+                f.write(f"Id \t Sentence1 \t Sentence2 \t Predicted_Sentiment \n")
+                for i, s1, s2, p in zip(eval_result['sts_sent_ids'], eval_result['sts_sent1'], eval_result['sts_sent2'], eval_result['sts_pred']):
+                    f.write(f"{i} , {s1}, {s2}, {p} \n")
 
         with open(config.sts_test_out, "w+") as f:
-            f.write(f"Id \t Sentence \t Predicted_Sentiment \n")
-            for i, s, p  in zip(test_result['sts_sent_ids'], test_result['sts_sents'], test_result['sts_pred'] ):
-                f.write(f"{i} , {s}, {p} \n")
+            f.write(f"Id \t Sentence1 \t Sentence2 \t Predicted_Sentiment \n")
+            for i, s1, s2, p  in zip(test_result['sts_sent_ids'], test_result['sts_sent1'], test_result['sts_sent2'], test_result['sts_pred'] ):
+                f.write(f"{i} , {s1}, {s2}, {p} \n")
 
 
 if __name__ == '__main__':
